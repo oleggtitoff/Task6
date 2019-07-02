@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <math.h>
 
-#define INPUT_FILE_NAME "TestSound4.wav"
+#define INPUT_FILE_NAME "TestSound3.wav"
 #define OUTPUT_FILE_NAME "Output.wav"
 #define FILE_HEADER_SIZE 44
 #define BYTES_PER_SAMPLE 2
@@ -19,8 +19,8 @@
 
 
 typedef struct {
-	int32_t x;
-	int32_t y;
+	int16_t x;
+	int16_t y;
 } AllpassBuff;
 
 
@@ -33,10 +33,24 @@ void writeHeader(uint8_t *headerBuff, FILE *outputFilePtr);
 void initializeBuff(AllpassBuff *buff);
 int32_t calculateCoeff(double Fc);
 
+int16_t allpassFilter(int16_t sample, AllpassBuff *buff, int32_t coeff);
+int16_t LPF(int16_t sample, AllpassBuff *buff, int32_t coeff);
+int16_t HPF(int16_t sample, AllpassBuff *buff, int32_t coeff);
+void run(FILE *inputFilePtr, FILE *outputFilePtr, AllpassBuff *buff, int32_t coeff);
+
 
 int main()
 {
+	FILE *inputFilePtr = openFile(INPUT_FILE_NAME, 0);
+	FILE *outputFilePtr = openFile(OUTPUT_FILE_NAME, 1);
+	uint8_t headerBuff[FILE_HEADER_SIZE];
+	AllpassBuff buff;
 
+	readHeader(headerBuff, inputFilePtr);
+	writeHeader(headerBuff, outputFilePtr);
+	run(inputFilePtr, outputFilePtr, &buff, calculateCoeff(FREQUENCY));
+	fclose(inputFilePtr);
+	fclose(outputFilePtr);
 
 	system("pause");
 	return 0;
@@ -114,3 +128,48 @@ int32_t calculateCoeff(double Fc)
 	return doubleToFixed31((tan(PI * Fc / SAMPLE_RATE) - 1) / (tan(PI * Fc / SAMPLE_RATE) + 1));
 }
 
+int16_t allpassFilter(int16_t sample, AllpassBuff *buff, int32_t coeff)
+{
+	int64_t acc = (int64_t)coeff * sample + ((int64_t)buff->x << 31) - (int64_t)coeff * buff->y;
+
+	buff->x = sample;
+	buff->y = (int32_t)(acc >> 31);
+
+	return (int16_t)(acc + (1LL << 30) >> 31);
+}
+
+int16_t LPF(int16_t sample, AllpassBuff *buff, int32_t coeff)
+{
+	return (int16_t)((int32_t)sample + allpassFilter(sample, buff, coeff)) / 2;
+}
+
+int16_t HPF(int16_t sample, AllpassBuff *buff, int32_t coeff)
+{
+	return (int16_t)((int32_t)sample - allpassFilter(sample, buff, coeff)) / 2;
+
+}
+
+void run(FILE *inputFilePtr, FILE *outputFilePtr, AllpassBuff *buff, int32_t coeff)
+{
+	int16_t dataBuff[DATA_BUFF_SIZE];
+	size_t samplesRead;
+	uint32_t i;
+
+	while (1)
+	{
+		samplesRead = fread(dataBuff, BYTES_PER_SAMPLE, DATA_BUFF_SIZE, inputFilePtr);
+
+		if (!samplesRead)
+		{
+			break;
+		}
+
+		for (i = 0; i < samplesRead - 1; i += 2)
+		{
+			dataBuff[i] = LPF(dataBuff[i], buff, coeff);
+			dataBuff[i + 1] = HPF(dataBuff[i + 1], buff, coeff);
+		}
+
+		fwrite(dataBuff, BYTES_PER_SAMPLE, samplesRead, outputFilePtr);
+	}
+}

@@ -132,12 +132,13 @@ int32_t calculateCoeff(double Fc)
 
 int16_t allpassFilter(int16_t sample, AllpassBuff *buff, int32_t coeff)
 {
-	int64_t acc = (int64_t)coeff * sample + ((int64_t)buff->x << 31) - (int64_t)coeff * buff->y;
+	int16_t acc = (int16_t)((((int64_t)coeff * sample - (int64_t)coeff * buff->y) + 
+		(1LL << 30)) >> 31) + buff->x;
 
 	buff->x = sample;
-	buff->y = (int16_t)((acc + (1LL << 30)) >> 31);
+	buff->y = acc;
 
-	return buff->y;
+	return acc;
 }
 
 int16_t allpassLPF(int16_t sample, AllpassBuff *buff, int32_t coeff)
